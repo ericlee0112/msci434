@@ -58,7 +58,7 @@ for w in Warehouses:
 for b in Bars:
     model += lpSum([vars[w][b] for w in Warehouses])>=demand[b], "Sum_of_Products_into_Bar%s"%b
 
-                       
+'''                    
 # The problem data is written to an .lp file
 model.writeLP("BeerDistributionProblem.lp")
 
@@ -74,3 +74,10 @@ for v in model.variables():
 
 # The optimised objective function value is printed to the screen    
 print("Total Cost of Transportation = ", value(model.objective))
+'''
+materials = [i for i in range(1,10+1)]
+suppliers = [i for i in range(1,3+1)]
+plants = [i for i in range(1,8+1)]
+
+jsk = LpVariable.dicts("V",(materials, suppliers, plants),0,None,LpInteger)
+print(jsk[1][1][1])
