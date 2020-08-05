@@ -1,14 +1,17 @@
-# Library imports
 from pulp import *
 
-NUMBER_OF_MATERIALS = 1
+NUMBER_OF_PRODUCTS = 1
+NUMBER_OF_MATERIALS = 2
 NUMBER_OF_PLANTS = 1
 NUMBER_OF_SUPPLIERS = 1
 NUMBER_OF_DCS = 1
 NUMBER_OF_CUSTOMERS = 1
 
+# PRODUCT = a + 2b
+
 # Notations & Parameters
-J = [i for i in range(1, NUMBER_OF_MATERIALS + 1)]
+I = [i for i in range(1, NUMBER_OF_PRODUCTS + 1)] # products
+J = ['a','b']
 K = [i for i in range(1, NUMBER_OF_PLANTS + 1)] # Plants
 S = [i for i in range(1, NUMBER_OF_SUPPLIERS + 1)] # Suppliers
 M = [i for i in range(1, NUMBER_OF_DCS + 1)] # Distribution Centers
@@ -17,7 +20,8 @@ N = [i for i in range(1, NUMBER_OF_CUSTOMERS + 1)] # Customers
 d = 250
 h_k = 500000
 Y = 300
-G_j = 1
+# G_ia = 1    G_1b = 2
+G_ij = {'a':1, 'b':2}
 w_js = 79
 lambda_k = 25
 r_m = 5
@@ -29,19 +33,29 @@ f_m = 3
 P = 1000 # Constant
 
 # SET UP FOR PULP
+products = I
 materials = J
 plants = K
 suppliers = S
 DCs = M
 customers = N
 
+# i = products
+# k = plants
+# j = materials
+# s = suppliers
+# m = DCs
+# n = customers
+
 # Decision Variables
-X_mn = LpVariable.dicts("X",(DCs, customers), 0, None, LpInteger) # Quantity sold from DC m to Customer n of Product i
-Q_k = LpVariable.dicts("Q",(plants),0,None,LpInteger) # Quantity produced at Plant k
-Y_km = LpVariable.dicts("Y",(plants, DCs),0,None,LpInteger) # Quantity shipped from Plant k to DC m of Product i
+X_imn = LpVariable.dicts("X",(products, DCs, customers), 0, None, LpInteger) # Quantity sold from DC m to Customer n of Product i
+Q_ik = LpVariable.dicts("Q",(products, plants),0,None,LpInteger) # Quantity produced at Plant k
+Y_ikm = LpVariable.dicts("Y",(products, plants, DCs),0,None,LpInteger) # Quantity shipped from Plant k to DC m of Product i
 V_jsk = LpVariable.dicts("V",(materials, suppliers, plants),0,None,cat="Continuous") # Quantity of material j Purchased from Supplier s by Plant k
 W_k = LpVariable.dicts("W",K,lowBound=0,upBound=1,cat='Binary') # Plant k open or not
 U_m = LpVariable.dicts("U",M,lowBound=0,upBound=1,cat='Binary') # DC m open or not
+print(Y_ikm)
+#extension decision vars
 
 # CREATE MODEL
 model = LpProblem("Supply_Chain_Problem",LpMinimize)
@@ -49,16 +63,16 @@ model = LpProblem("Supply_Chain_Problem",LpMinimize)
 # OBJECTIVE FUNCTION
 
 # Part 1 of objective function
-part1 = lpSum(lambda_k*Q_k[k] for k in plants)
+part1 = lpSum(lambda_k*Q_ik[i][k] for i in products for k in plants)
 
 # Part 2 of objective function
 part2 = lpSum([(w_js+t_1jsk)*V_jsk[j][s][k] for j in materials for s in suppliers for k in plants])
 
 # Part 3 of objective function
-part3 = lpSum([t_2km*Y_km[k][m] for k in plants for m in DCs])
+part3 = lpSum([t_2km*Y_ikm[i][k][m] for i in products for k in plants for m in DCs])
 
 # Part 4 of objective function
-part4 = lpSum([(r_m+t_3mn)*X_mn[m][n] for m in DCs for n in customers])
+part4 = lpSum([(r_m+t_3mn)*X_imn[i][m][n] for i in products for m in DCs for n in customers])
 
 # Part 5 of objective function
 part5 = lpSum([f_k*W_k[k] for k in plants])
@@ -68,57 +82,73 @@ part6 = lpSum([f_m*U_m[m] for m in DCs])
 
 # Objective function
 model += part1 + part2 + part3 + part4 + part5 + part6, "Objective function"
+print(model)
 
-# CONSTRAINTS
+
 # constraint 1
-# X_imn >= di for every n
-for n in customers:
-  model += lpSum([X_mn[m][n] for m in DCs])>=(d)
+# X_imn <= di for every i and n
+for i in products:
+  for n in customers:
+    model += lpSum([X_imn[i][m][n] for m in DCs])>=(d)
 
 # constraint 2
 # X_imn <= Y_ikm for every i and k
-for m in DCs:
-  model += lpSum([X_mn[m][n] for n in customers])<=lpSum([Y_km[k][m] for k in plants])
+for i in products:
+  for m in DCs:
+    model += lpSum([X_imn[i][m][n] for n in customers])<=lpSum([Y_ikm[1][k][m] for k in plants])
 
 # constraint 3
 # Y_ikm <= Q_ik for every i and k
-for k in plants:
-  model += lpSum([Y_km[k][m] for m in DCs])<=(Q_k[k])
+
+for i in products:
+  for k in plants:
+    model += lpSum([Y_ikm[i][k][m] for m in DCs])<=(Q_ik[i][k])
 
 # constraint 4
 # Y_i*Q_ik <= h_k*W_k for every k
 for k in plants:
-  model += lpSum([Y*Q_k[k]])<=lpSum([W_k[k]*h_k])
+  model += lpSum([Y*Q_ik[i][k] for i in products])<=([h_k*W_k[k]])
 
 # constraint 5
 # G_ij*Q_ik <= V_jsk for every j and k
-for k in plants:
-  for j in materials:
-    model += ([G_j*Q_k[k]])<=lpSum([V_jsk[j][s][k] for s in suppliers])
+for j in materials:
+  for k in plants:
+    model += lpSum([G_ij[j]*Q_ik[i][k] for i in products])<=lpSum([V_jsk[j][s][k] for s in suppliers])
 
 # constraint 6
 # X_imn <= P*U_m for every m
 for m in DCs:
-  model += lpSum([X_mn[m][n] for n in customers])<=(P*U_m[m])
+  model += lpSum([X_imn[i][m][n] for i in products for n in customers])<=(P*U_m[m])
 
+# constraint 7
+# V_ask = Y_ikm for all k
+for k in plants:
+  model += lpSum([V_jsk['a'][s][k] for s in suppliers])==lpSum([Y_ikm[1][k][m] for m in DCs])
 
-"""Solve the model"""
+# constraint 8
+# 2V_bsk = Y_ikm for all k
+for k in plants:
+  model += lpSum([V_jsk['b'][s][k] for s in suppliers])==lpSum([2*Y_ikm[1][k][m] for m in DCs])
 
+# constraint 9
+# Vask = 2Vbsk
+'''
+for s in suppliers:
+  for k in plants:
+    model += lpSum(V_jsk['a'][s][k])==lpSum([2*V_jsk['b'][s][k]])
+'''
 # The problem data is written to an .lp file
-model.writeLP("V1.lp")
+model.writeLP("case_study_1.lp")
 
 # The problem is solved using PuLP's choice of Solver
 model.solve()
 
-"""Display results"""
-
-print(model)
 # The status of the solution is printed to the screen
 print("Status:", LpStatus[model.status])
 
 # Each of the variables is printed with it's resolved optimum value
 for v in model.variables():
-  print(str(v.name) + "=" + str(v.varValue))
+    print(str(v.name) + "=" + str(v.varValue))
 
 # The optimised objective function value is printed to the screen    
 print("Total Cost of Transportation = ", value(model.objective))
